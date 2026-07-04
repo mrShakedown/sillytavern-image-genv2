@@ -5243,6 +5243,24 @@ Prompt:`;
                 restrictions += "\n- DO NOT include any artist names";
             }
 
+            const requiredTagCategoriesBlock = `
+Required tag categories:
+- Character name + series name (CRITICAL: Use recognizable fictional media character tags whenever recognized${shouldUseExactNameRequirements ? `, and keep exact active names like ${activeCharacterList || "the named character"} when no canonical tag exists` : ""})
+${userSceneRequirementBullet}
+- Preserve explicit ages, species, creature types, and nonhuman identities from the scene/profile instead of replacing them with generic human tags
+- Physical traits (hair, eyes, body, skin)
+- Clothing and accessories
+- Pose and expression
+- Background/setting
+- Quality tags (masterpiece, best quality, etc.)${enhancements ? `
+
+MUST INCLUDE these additional elements:${enhancements}` : ""}
+${restrictions}
+
+Tags:`;
+
+            const criticalRestrictionsBlock = `${restrictions}`;
+
             instruction = `### STANDALONE IMAGE GENERATION TASK ###${skinEnforce}
 
 CRITICAL - THIS IS NOT A CONTINUATION OF CHAT:
@@ -5267,21 +5285,7 @@ WRONG (DO NOT do this):
 Create Danbooru/Booru-style tags for this ${isMultiMessage ? "scene context:\n" : "scene: "}${basePrompt}
 
 Character info: ${appearanceContext}${exactNameBlock}${userNameBlock}${identityRequirementBlock}${subjectPriorityBlock}
-
-Required tag categories:
-- Character name + series name (CRITICAL: Use recognizable fictional media character tags whenever recognized${shouldUseExactNameRequirements ? `, and keep exact active names like ${activeCharacterList || "the named character"} when no canonical tag exists` : ""})
-${userSceneRequirementBullet}
-- Preserve explicit ages, species, creature types, and nonhuman identities from the scene/profile instead of replacing them with generic human tags
-- Physical traits (hair, eyes, body, skin)
-- Clothing and accessories
-- Pose and expression
-- Background/setting
-- Quality tags (masterpiece, best quality, etc.)${enhancements ? `
-
-MUST INCLUDE these additional elements:${enhancements}` : ""}
-${restrictions}
-
-Tags:`;
+${requiredTagCategoriesBlock}`;
         }
 
         log(`Sending instruction to LLM (length: ${instruction.length} chars)`);
