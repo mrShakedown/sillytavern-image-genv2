@@ -4729,6 +4729,8 @@ async function callOverrideLLM(instruction, systemPrompt = "", signal = null, { 
     let profile = null;
     let originalProfilePreset;
     let presetOverridden = false;
+    let originalActivePreset = null;
+    let activePresetOverridden = false;
     try {
         profile = CMRS.getProfile(s.llmOverrideProfileId);
 
@@ -4761,7 +4763,7 @@ async function callOverrideLLM(instruction, systemPrompt = "", signal = null, { 
             s.llmOverrideProfileId,
             messages,
             requestedMaxTokens,
-            { extractData: true, includePreset: false, stream: false }
+            { extractData: true, includePreset: true, stream: false }
         ), signal));
         const details = extractLLMResponseDetails(response);
         const meta = {
@@ -4808,6 +4810,17 @@ async function callOverrideLLM(instruction, systemPrompt = "", signal = null, { 
                 await rotateSecret(secretKey, previousSecretId);
             } catch (e) {
                 log(`LLM Override: Could not restore secret: ${e.message}`);
+            }
+        }
+
+        // Restore profile preset if we overrode it for this call.
+        // Restore active chat preset if we switched it
+        if (activePresetOverridden && presetManager && typeof presetManager.selectPreset === 'function') {
+            try {
+                log(`LLM Override: Restoring active preset to '${originalActivePreset}'`);
+                presetManager.selectPreset(originalActivePreset);
+            } catch (e) {
+                log(`LLM Override: Could not restore active preset: ${e.message}`);
             }
         }
 
@@ -5019,7 +5032,7 @@ Plain visual description:`;
 }
 
 async function generateLLMPrompt(s, basePrompt, signal, options = {}) {
-    if (!s.useLLMPrompt) return basePrompt;
+    if (!s.useLLMPrompt && !(s.llmOverrideEnabled && s.llmOverrideProfileId)) return basePrompt;
 
     // Clear any cached styles before generating new prompt
     clearStyleCache();
