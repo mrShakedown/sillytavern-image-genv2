@@ -4722,6 +4722,15 @@ async function callOverrideLLM(instruction, systemPrompt = "", signal = null, { 
 
     const requestedPreset = s.llmOverridePreset || "";
     log(`LLM Override: Using connection profile '${s.llmOverrideProfileId}' (preset: ${requestedPreset || "profile default"})`);
+    // Debug: show endpoint info
+    try {
+        const dbgProfile = CMRS.getProfile(s.llmOverrideProfileId);
+        const dbgUrl = dbgProfile?.api_url || dbgProfile?.url || dbgProfile?.endpoint || dbgProfile?.serviceEndpoint || "?";
+        log(`LLM Override DEBUG: Profile endpoint = ${dbgUrl}`);
+        console.log("[QIG LLM OVERRIDE]", { profileId: s.llmOverrideProfileId, endpoint: dbgUrl, preset: requestedPreset, maxTokens: requestedMaxTokens, profileKeys: Object.keys(dbgProfile || {}) });
+        showStatus(`🔄 Отправка запроса в: ${dbgUrl}`);
+        setTimeout(hideStatus, 3000);
+    } catch {}
 
     // Rotate to the profile's secret if it has one
     let previousSecretId = null;
@@ -4873,7 +4882,44 @@ async function populatePresetList(selectId, selectedPreset) {
             select.appendChild(opt);
         }
     } catch (e) {
-        log(`Failed to load presets: ${e.message}`);
+        log(`Failed to load presets: ${e.message}
+
+function updateLLMOverrideRouteInfo() {
+    const s = getSettings();
+    const routeStatus = document.getElementById("qig-llm-override-route-status");
+    const routeEndpoint = document.getElementById("qig-llm-override-route-endpoint");
+    if (!routeStatus || !routeEndpoint) return;
+
+    if (!s.llmOverrideEnabled) {
+        routeStatus.innerHTML = "🔒 Запросы идут на основной AI чата";
+        routeEndpoint.textContent = "Маршрут не настроен";
+        return;
+    }
+
+    if (s.llmOverrideProfileId) {
+        let profileUrl = "";
+        try {
+            const ctx = getContext();
+            const CMRS = ctx.ConnectionManagerRequestService;
+            if (CMRS) {
+                const profile = CMRS.getProfile(s.llmOverrideProfileId);
+                profileUrl = profile?.api_url || profile?.url || profile?.endpoint || "";
+            }
+        } catch {}
+        const profileLabel = s.llmOverrideProfileId.length > 30
+            ? s.llmOverrideProfileId.substring(0, 27) + "..."
+            : s.llmOverrideProfileId;
+        routeStatus.innerHTML = "✅ Запросы идут на: " + escapeHtml(profileLabel);
+        routeEndpoint.textContent = profileUrl
+            ? ("Endpoint: " + escapeHtml(profileUrl.substring(0, 60)))
+            : "Профиль маршрутизации активен";
+    } else {
+        routeStatus.innerHTML = "⚠️ Выберите Connection Profile для активации";
+        routeEndpoint.textContent = "Профиль не выбран — запросы пойдут на основной AI чата";
+    }
+}
+
+`);
     }
 }
 
@@ -12700,7 +12746,11 @@ function createUI() {
                             <label style="font-size:11px;margin-top:4px;">Completion Preset (опционально)</label>
                             <select id="qig-llm-override-preset-select" style="width:100%;"></select>
                             <label style="font-size:11px;margin-top:4px;">Max Tokens</label>
-                            <input id="qig-llm-override-max" type="number" value="${esc(s.llmOverrideMaxTokens || 500)}" min="50" max="4096" style="width:100%;">
+                         <input id="qig-llm-override-max" type="number" value="${esc(s.llmOverrideMaxTokens || 500)}" min="50" max="4096" style="width:100%;">
+                         <div id="qig-llm-override-route-info" style="margin-top:8px;padding:6px 10px;border:1px solid color-mix(in srgb, var(--qig-success) 30%, transparent);border-radius:6px;background:color-mix(in srgb, var(--qig-success) 8%, transparent);font-size:10px;line-height:1.5;">
+                             <span id="qig-llm-override-route-status" style="font-weight:600;">🔒 Запросы идут на основной AI чата</span><br>
+                             <span id="qig-llm-override-route-endpoint" style="opacity:0.7;">Маршрут не настроен</span>
+                         </div>
                         </div>
                     </div>
                 </section>
@@ -13668,17 +13718,19 @@ function createUI() {
         if (btn) {
             btn.style.background = s.llmOverrideEnabled ? 'var(--qig-accent)' : 'transparent';
             btn.style.borderColor = s.llmOverrideEnabled ? 'var(--qig-accent)' : 'var(--qig-line)';
-            btn.innerHTML = s.llmOverrideEnabled ? '✅ Использовать другой ИИ для генерации изображений' : '☐ Использовать другой ИИ для генерации изображений';
+            btn.innerHTML = s.llmOverrideEnabled ? '✅ [TEST] Использовать другой ИИ для генерации изображений' : '☐ [TEST] Использовать другой ИИ для генерации изображений';
         }
         document.getElementById("qig-llm-override-options").style.display = s.llmOverrideEnabled ? "block" : "none";
         if (s.llmOverrideEnabled) {
             populateConnectionProfiles("qig-llm-override-profile", getSettings().llmOverrideProfileId);
             populatePresetList("qig-llm-override-preset-select", getSettings().llmOverridePreset);
         }
+        updateLLMOverrideRouteInfo();
         saveSettingsDebounced();
     };
     document.getElementById("qig-llm-override-profile").onchange = (e) => {
         getSettings().llmOverrideProfileId = e.target.value;
+        updateLLMOverrideRouteInfo();
         saveSettingsDebounced();
     };
     document.getElementById("qig-llm-override-preset-select").onchange = (e) => {
@@ -15407,7 +15459,8 @@ jQuery(function () {
                 if (btn) {
                     btn.style.background = 'var(--qig-accent)';
                     btn.style.borderColor = 'var(--qig-accent)';
-                    btn.innerHTML = '✅ Использовать другой ИИ для генерации изображений';
+                    btn.innerHTML = '✅ [TEST] Использовать другой ИИ для генерации изображений';
+                    updateLLMOverrideRouteInfo();
                 }
             }
 
