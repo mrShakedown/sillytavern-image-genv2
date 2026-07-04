@@ -12682,18 +12682,27 @@ function createUI() {
                 </div>
                 <small style="opacity:0.6;font-size:10px;">Direct uses the selected scene settings. Inject extracts image tags from the latest tagged AI message, or asks the LLM for one tag from the selected scene.</small>
 
-                <div class="qig-dependent-panel">
-                    <button id="qig-llm-override-toggle" class="menu_button qig-inline-action" style="width:100%;text-align:center;font-weight:700;background:${s.llmOverrideEnabled ? 'var(--qig-accent)' : 'transparent'};border-color:${s.llmOverrideEnabled ? 'var(--qig-accent)' : 'var(--qig-line)'};">${s.llmOverrideEnabled ? '✅' : '☐'} Использовать другой ИИ для генерации изображений</button>
-                    <small style="opacity:0.6;font-size:10px;">Направлять генерацию промптов изображений на другую AI модель, отличную от основного чата</small>
-                    <div id="qig-llm-override-options" style="display:${s.llmOverrideEnabled ? 'block' : 'none'};margin-top:6px;">
-                        <label style="font-size:11px;">Connection Profile</label>
-                        <select id="qig-llm-override-profile" style="width:100%;"></select>
-                        <label style="font-size:11px;margin-top:4px;">Completion Preset (опционально)</label>
-                        <select id="qig-llm-override-preset-select" style="width:100%;"></select>
-                        <label style="font-size:11px;margin-top:4px;">Max Tokens</label>
-                        <input id="qig-llm-override-max" type="number" value="${esc(s.llmOverrideMaxTokens || 500)}" min="50" max="4096" style="width:100%;">
+                </section>
+
+                <section class="qig-menu-section" aria-labelledby="qig-llm-override-heading">
+                    <div class="qig-section-header">
+                        <div>
+                            <span id="qig-llm-override-heading" class="qig-section-kicker">TEST LLM Override</span>
+                            <p>Использовать другой ИИ для генерации промптов изображений</p>
+                        </div>
                     </div>
-                </div>
+                    <div class="qig-dependent-panel">
+                        <button id="qig-llm-override-toggle" class="menu_button qig-inline-action" style="width:100%;text-align:center;font-weight:700;background:${s.llmOverrideEnabled ? 'var(--qig-accent)' : 'transparent'};border-color:${s.llmOverrideEnabled ? 'var(--qig-accent)' : 'var(--qig-line)'};">${s.llmOverrideEnabled ? '✅' : '☐'} [TEST] Использовать другой ИИ для генерации изображений</button>
+                        <small style="opacity:0.6;font-size:10px;">Направлять генерацию промптов изображений на другую AI модель, отличную от основного чата</small>
+                        <div id="qig-llm-override-options" style="display:${s.llmOverrideEnabled ? 'block' : 'none'};margin-top:6px;">
+                            <label style="font-size:11px;">Connection Profile</label>
+                            <select id="qig-llm-override-profile" style="width:100%;"></select>
+                            <label style="font-size:11px;margin-top:4px;">Completion Preset (опционально)</label>
+                            <select id="qig-llm-override-preset-select" style="width:100%;"></select>
+                            <label style="font-size:11px;margin-top:4px;">Max Tokens</label>
+                            <input id="qig-llm-override-max" type="number" value="${esc(s.llmOverrideMaxTokens || 500)}" min="50" max="4096" style="width:100%;">
+                        </div>
+                    </div>
                 </section>
 
                 <section class="qig-menu-section" aria-labelledby="qig-output-heading">
