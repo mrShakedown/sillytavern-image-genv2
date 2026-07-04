@@ -343,6 +343,9 @@ const defaultSettings = {
     llmAddArtist: false,
     llmPrefill: "",
     llmIdentityRequirements: "",
+    llmSystemPrompt: "",
+    promptPrefix: "",
+    promptPostfix: "",
     messageRange: "-1",
     width: 512,
     height: 512,
@@ -5252,10 +5255,9 @@ ${userSceneRequirementBullet}
 - Clothing and accessories
 - Pose and expression
 - Background/setting
-- Quality tags (masterpiece, best quality, etc.)${enhancements ? `
+ - Quality tags (masterpiece, best quality, etc.)${enhancements ? `
 
 MUST INCLUDE these additional elements:${enhancements}` : ""}
-${restrictions}
 
 Tags:`;
 
@@ -5285,7 +5287,8 @@ WRONG (DO NOT do this):
 Create Danbooru/Booru-style tags for this ${isMultiMessage ? "scene context:\n" : "scene: "}${basePrompt}
 
 Character info: ${appearanceContext}${exactNameBlock}${userNameBlock}${identityRequirementBlock}${subjectPriorityBlock}
-${requiredTagCategoriesBlock}`;
+${requiredTagCategoriesBlock}
+${criticalRestrictionsBlock}`;
         }
 
         log(`Sending instruction to LLM (length: ${instruction.length} chars)`);
@@ -5318,15 +5321,19 @@ ${requiredTagCategoriesBlock}`;
         // Fallback to the quiet prompt path if standalone generation is unavailable.
         let llmPrompt;
         let helperResponseMeta;
+        const customSystemPrompt = String(s.llmSystemPrompt || "").trim();
         if (s.llmOverrideEnabled && s.llmOverrideProfileId) {
             log("Using LLM Override for prompt generation");
-            helperResponseMeta = await callOverrideLLM(instructionWithEntropy, "", signal, {
+            helperResponseMeta = await callOverrideLLM(instructionWithEntropy, customSystemPrompt || "", signal, {
                 assistantPrefill: resolvedPrefill,
                 returnMeta: true,
             });
             llmPrompt = helperResponseMeta?.text || "";
         } else {
-            helperResponseMeta = await callInternalStandaloneLLM(instructionWithEntropy, {
+            const finalInstruction = customSystemPrompt
+                ? `[SYSTEM INSTRUCTIONS]\n${customSystemPrompt}\n\n[USER REQUEST]\n${instructionWithEntropy}`
+                : instructionWithEntropy;
+            helperResponseMeta = await callInternalStandaloneLLM(finalInstruction, {
                 signal,
                 quietName: `ImageGen_${timestamp}`,
                 label: "image prompt generation request",
@@ -12509,6 +12516,24 @@ function createUI() {
                                 <textarea id="qig-llm-identity-reqs" rows="4" style="width:100%;resize:vertical;" placeholder="Custom identity requirements for the LLM. If left empty, built-in defaults are used.">${esc(s.llmIdentityRequirements || "")}</textarea>
                                 <small>Replaces the hardcoded IDENTITY REQUIREMENTS block. Leave empty to use defaults (preserve age/species/race, don't flatten to generic labels, keep non-human identities).</small>
                             </div>
+                            <div style="margin-top:8px;">
+                                <label>LLM System Prompt</label>
+                                <textarea id="qig-llm-system-prompt" rows="4" style="width:100%;resize:vertical;" placeholder="Custom system prompt sent to the LLM when generating image prompts. Leave empty to use default behavior.">${esc(s.llmSystemPrompt || "")}</textarea>
+                                <small>Sent as the system message to the AI when it generates image prompts. Use this to control the AI's behavior, tone, and output format for prompt generation.</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="qig-subsection" style="margin-top:12px;">
+                        <label style="font-size:12px;font-weight:600;margin-bottom:6px;display:block;">Prompt Prefix & Postfix</label>
+                        <small class="qig-muted" style="display:block;margin-bottom:6px;">Text added before and after the final generated prompt. Applied after LLM generation and all filters.</small>
+                        <div class="qig-field" style="margin-bottom:6px;">
+                            <label>Prompt Prefix</label>
+                            <textarea id="qig-prompt-prefix" rows="2" style="width:100%;resize:vertical;" placeholder="Text prepended to every generated prompt (e.g., 'masterpiece, best quality,')">${esc(s.promptPrefix || "")}</textarea>
+                        </div>
+                        <div class="qig-field">
+                            <label>Prompt Postfix</label>
+                            <textarea id="qig-prompt-postfix" rows="2" style="width:100%;resize:vertical;" placeholder="Text appended to every generated prompt (e.g., ', highly detailed, 8k')">${esc(s.promptPostfix || "")}</textarea>
                         </div>
                     </div>
                     </div>
@@ -13424,6 +13449,9 @@ function createUI() {
     bindCheckbox("qig-llm-artist", "llmAddArtist");
     bind("qig-llm-prefill", "llmPrefill");
     bind("qig-llm-identity-reqs", "llmIdentityRequirements");
+    bind("qig-llm-system-prompt", "llmSystemPrompt");
+    bind("qig-prompt-prefix", "promptPrefix");
+    bind("qig-prompt-postfix", "promptPostfix");
     document.getElementById("qig-llm-style").onchange = e => {
         getSettings().llmPromptStyle = e.target.value;
         saveSettingsDebounced();
@@ -14437,17 +14465,27 @@ async function generateImage() {
 
     const llmSceneText = scenePrompt || basePrompt;
     const filterMatchText = [llmSceneText, prompt].filter(Boolean).join("\n\n");
-    const contextualApplied = await applyResolvedContextualFilters(prompt, negative, {
-        matchText: filterMatchText || prompt,
-        llmSceneText,
-        signal: currentAbortController?.signal,
-    });
-    checkAborted(cancelCheckpoint);
-    prompt = contextualApplied.prompt;
-    negative = contextualApplied.negative;
+        const contextualApplied = await applyResolvedContextualFilters(prompt, negative, {
+            matchText: filterMatchText || prompt,
+            llmSceneText,
+            signal: currentAbortController?.signal,
+        });
+        checkAborted(cancelCheckpoint);
+        prompt = contextualApplied.prompt;
+        negative = contextualApplied.negative;
 
-    lastPrompt = prompt;
-    lastNegative = negative;
+        // Apply prompt prefix and postfix
+        const promptPrefix = String(s.promptPrefix || "").trim();
+        const promptPostfix = String(s.promptPostfix || "").trim();
+        if (promptPrefix) {
+            prompt = `${promptPrefix}, ${prompt}`;
+        }
+        if (promptPostfix) {
+            prompt = `${prompt}, ${promptPostfix}`;
+        }
+
+        lastPrompt = prompt;
+        lastNegative = negative;
     promptHistory.unshift({ prompt, negative, time: new Date().toLocaleTimeString() });
     if (promptHistory.length > 50) promptHistory.pop();
     savePromptHistory();
