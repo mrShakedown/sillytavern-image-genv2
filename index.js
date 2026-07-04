@@ -342,6 +342,7 @@ const defaultSettings = {
     llmAddLighting: false,
     llmAddArtist: false,
     llmPrefill: "",
+    llmIdentityRequirements: "",
     messageRange: "-1",
     width: 512,
     height: 512,
@@ -5092,15 +5093,21 @@ async function generateLLMPrompt(s, basePrompt, signal, options = {}) {
         const userNameBlock = userPersona
             ? `\nUSER PERSONA NAME (use when the scene refers to the user / I / me / my): ${userName}`
             : "";
-        const identityRequirements = [
-            "- Preserve any explicit age, age range, species, creature type, race, or persona/body traits from the scene or profile.",
-            "- Do NOT flatten specific identities into generic labels like man, woman, person, human, teen, adult, boy, or girl when more specific information is available.",
-            "- If a subject is non-human or from a known fantasy/franchise species, keep that identity in the prompt instead of humanizing it.",
-        ];
-        if (userPersona) {
-            identityRequirements.push(`- If the scene uses first-person references like I/me/my or mentions ${userName}, that subject is the user persona described below. Use that persona's age, species, body type, and nonhuman traits.`);
+        const customIdentityReqs = String(s.llmIdentityRequirements || "").trim();
+        let identityRequirementBlock;
+        if (customIdentityReqs) {
+            identityRequirementBlock = `\nIDENTITY REQUIREMENTS:\n${customIdentityReqs}`;
+        } else {
+            const identityRequirements = [
+                "- Preserve any explicit age, age range, species, creature type, race, or persona/body traits from the scene or profile.",
+                "- Do NOT flatten specific identities into generic labels like man, woman, person, human, teen, adult, boy, or girl when more specific information is available.",
+                "- If a subject is non-human or from a known fantasy/franchise species, keep that identity in the prompt instead of humanizing it.",
+            ];
+            if (userPersona) {
+                identityRequirements.push(`- If the scene uses first-person references like I/me/my or mentions ${userName}, that subject is the user persona described below. Use that persona's age, species, body type, and nonhuman traits.`);
+            }
+            identityRequirementBlock = `\nIDENTITY REQUIREMENTS:\n${identityRequirements.join("\n")}`;
         }
-        const identityRequirementBlock = `\nIDENTITY REQUIREMENTS:\n${identityRequirements.join("\n")}`;
         const subjectPriorityRequirements = [];
         if (sceneIncludesUserPersona) {
             subjectPriorityRequirements.push(`- The user persona (${userName}) is visually involved in this scene whenever the scene uses first-person references or the user name.`);
@@ -12490,8 +12497,13 @@ function createUI() {
                             <input id="qig-llm-prefill" type="text" value="${esc(s.llmPrefill || '')}" placeholder="e.g., Image prompt:">
                             <small>Pre-fills the start of the AI response to guide its output format.</small>
                             <div id="qig-llm-custom-wrap" style="display:${s.llmPromptStyle === "custom" ? "block" : "none"};margin-top:8px;">
-                                <label>Custom LLM Instruction</label>
+                        <label>Custom LLM Instruction</label>
                                 <textarea id="qig-llm-custom" style="width:100%;height:120px;resize:vertical;" placeholder="Write your custom instruction for the LLM. Use {{scene}} for the current scene text.">${esc(s.llmCustomInstruction || "")}</textarea>
+                            </div>
+                            <div style="margin-top:8px;">
+                                <label>Identity Requirements</label>
+                                <textarea id="qig-llm-identity-reqs" rows="4" style="width:100%;resize:vertical;" placeholder="Custom identity requirements for the LLM. If left empty, built-in defaults are used.">${esc(s.llmIdentityRequirements || "")}</textarea>
+                                <small>Replaces the hardcoded IDENTITY REQUIREMENTS block. Leave empty to use defaults (preserve age/species/race, don't flatten to generic labels, keep non-human identities).</small>
                             </div>
                         </div>
                     </div>
@@ -13407,6 +13419,7 @@ function createUI() {
     bindCheckbox("qig-llm-lighting", "llmAddLighting");
     bindCheckbox("qig-llm-artist", "llmAddArtist");
     bind("qig-llm-prefill", "llmPrefill");
+    bind("qig-llm-identity-reqs", "llmIdentityRequirements");
     document.getElementById("qig-llm-style").onchange = e => {
         getSettings().llmPromptStyle = e.target.value;
         saveSettingsDebounced();
