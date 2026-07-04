@@ -4900,20 +4900,19 @@ function updateLLMOverrideRouteInfo() {
 
     if (s.llmOverrideProfileId) {
         let profileUrl = "";
+        let profileDisplayName = s.llmOverrideProfileId; // fallback to ID
         try {
             const ctx = getContext();
             const CMRS = ctx.ConnectionManagerRequestService;
             if (CMRS) {
                 const profile = CMRS.getProfile(s.llmOverrideProfileId);
-                profileUrl = profile?.api_url || profile?.url || profile?.endpoint || "";
+                profileUrl = profile?.api_url || profile?.url || profile?.endpoint || profile?.serviceEndpoint || "";
+                profileDisplayName = profile?.name || profile?.label || profile?.profileName || s.llmOverrideProfileId;
             }
         } catch {}
-        const profileLabel = s.llmOverrideProfileId.length > 30
-            ? s.llmOverrideProfileId.substring(0, 27) + "..."
-            : s.llmOverrideProfileId;
-        routeStatus.innerHTML = "✅ Запросы идут на: " + escapeHtml(profileLabel);
+        routeStatus.innerHTML = "✅ Запросы идут на: " + escapeHtml(profileDisplayName);
         routeEndpoint.textContent = profileUrl
-            ? ("Endpoint: " + escapeHtml(profileUrl.substring(0, 60)))
+            ? ("📍 " + escapeHtml(profileUrl))
             : "Профиль маршрутизации активен";
     } else {
         routeStatus.innerHTML = "⚠️ Выберите Connection Profile для активации";
