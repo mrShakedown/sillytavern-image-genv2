@@ -4881,7 +4881,6 @@ async function populatePresetList(selectId, selectedPreset) {
             if (name === selectedPreset) opt.selected = true;
             select.appendChild(opt);
         }
-        }
     } catch (e) {
         log(`Failed to load presets: ${e.message}`);
     }
