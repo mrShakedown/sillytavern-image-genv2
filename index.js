@@ -12683,15 +12683,12 @@ function createUI() {
                 <small style="opacity:0.6;font-size:10px;">Direct uses the selected scene settings. Inject extracts image tags from the latest tagged AI message, or asks the LLM for one tag from the selected scene.</small>
 
                 <div class="qig-dependent-panel">
-                    <label class="checkbox_label">
-                        <input id="qig-llm-override" type="checkbox" ${s.llmOverrideEnabled ? "checked" : ""}>
-                        <span>Use separate AI for image prompts</span>
-                    </label>
-                    <small style="opacity:0.6;font-size:10px;">Route image prompt generation to a different AI model than your main chat</small>
+                    <button id="qig-llm-override-toggle" class="menu_button qig-inline-action" style="width:100%;text-align:center;font-weight:700;background:${s.llmOverrideEnabled ? 'var(--qig-accent)' : 'transparent'};border-color:${s.llmOverrideEnabled ? 'var(--qig-accent)' : 'var(--qig-line)'};">${s.llmOverrideEnabled ? '✅' : '☐'} Использовать другой ИИ для генерации изображений</button>
+                    <small style="opacity:0.6;font-size:10px;">Направлять генерацию промптов изображений на другую AI модель, отличную от основного чата</small>
                     <div id="qig-llm-override-options" style="display:${s.llmOverrideEnabled ? 'block' : 'none'};margin-top:6px;">
                         <label style="font-size:11px;">Connection Profile</label>
                         <select id="qig-llm-override-profile" style="width:100%;"></select>
-                        <label style="font-size:11px;margin-top:4px;">Completion Preset (optional)</label>
+                        <label style="font-size:11px;margin-top:4px;">Completion Preset (опционально)</label>
                         <select id="qig-llm-override-preset-select" style="width:100%;"></select>
                         <label style="font-size:11px;margin-top:4px;">Max Tokens</label>
                         <input id="qig-llm-override-max" type="number" value="${esc(s.llmOverrideMaxTokens || 500)}" min="50" max="4096" style="width:100%;">
@@ -13653,10 +13650,19 @@ function createUI() {
     };
 
     // LLM Override bindings
-    document.getElementById("qig-llm-override").onchange = (e) => {
-        getSettings().llmOverrideEnabled = e.target.checked;
-        document.getElementById("qig-llm-override-options").style.display = e.target.checked ? "block" : "none";
-        if (e.target.checked) {
+    document.getElementById("qig-llm-override-toggle").onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const s = getSettings();
+        s.llmOverrideEnabled = !s.llmOverrideEnabled;
+        const btn = document.getElementById("qig-llm-override-toggle");
+        if (btn) {
+            btn.style.background = s.llmOverrideEnabled ? 'var(--qig-accent)' : 'transparent';
+            btn.style.borderColor = s.llmOverrideEnabled ? 'var(--qig-accent)' : 'var(--qig-line)';
+            btn.innerHTML = s.llmOverrideEnabled ? '✅ Использовать другой ИИ для генерации изображений' : '☐ Использовать другой ИИ для генерации изображений';
+        }
+        document.getElementById("qig-llm-override-options").style.display = s.llmOverrideEnabled ? "block" : "none";
+        if (s.llmOverrideEnabled) {
             populateConnectionProfiles("qig-llm-override-profile", getSettings().llmOverrideProfileId);
             populatePresetList("qig-llm-override-preset-select", getSettings().llmOverridePreset);
         }
@@ -15388,6 +15394,12 @@ jQuery(function () {
             if (initSettings.llmOverrideEnabled) {
                 populateConnectionProfiles("qig-llm-override-profile", initSettings.llmOverrideProfileId);
                 populatePresetList("qig-llm-override-preset-select", initSettings.llmOverridePreset);
+                const btn = document.getElementById("qig-llm-override-toggle");
+                if (btn) {
+                    btn.style.background = 'var(--qig-accent)';
+                    btn.style.borderColor = 'var(--qig-accent)';
+                    btn.innerHTML = '✅ Использовать другой ИИ для генерации изображений';
+                }
             }
 
             const { eventSource, event_types } = scriptModule;
