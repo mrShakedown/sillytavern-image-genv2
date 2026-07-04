@@ -4920,9 +4920,6 @@ function updateLLMOverrideRouteInfo() {
         routeEndpoint.textContent = "Профиль не выбран — запросы пойдут на основной AI чата";
     }
 }
-`);
-    }
-}
 
 function getResolvedLLMPrefill(settings = getSettings()) {
     const profile = resolveLLMPromptProfileContext(getContext());
