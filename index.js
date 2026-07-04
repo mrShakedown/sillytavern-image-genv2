@@ -4761,7 +4761,7 @@ async function callOverrideLLM(instruction, systemPrompt = "", signal = null, { 
             s.llmOverrideProfileId,
             messages,
             requestedMaxTokens,
-            { extractData: true, includePreset: true, stream: false }
+            { extractData: true, includePreset: false, stream: false }
         ), signal));
         const details = extractLLMResponseDetails(response);
         const meta = {
