@@ -4684,15 +4684,17 @@ function findSecretKeyForId(secretId) {
 async function callOverrideLLM(instruction, systemPrompt = "", signal = null, { assistantPrefill = "", returnMeta = false } = {}) {
     const s = getSettings();
     const requestedMaxTokens = s.llmOverrideMaxTokens || 500;
+    const requestedPreset = s.llmOverridePreset || "";
+
+    // Resolve Connection Manager Request Service (SillyTavern >= 1.12.x)
     let CMRS = null;
     try {
         const ctx = getContext();
-        CMRS = ctx.ConnectionManagerRequestService;
-    } catch { /* pre-1.15.0 */ }
+        CMRS = ctx?.ConnectionManagerRequestService || null;
+    } catch { /* context unavailable */ }
 
-    if (!CMRS || !s.llmOverrideProfileId) {
-        // Fallback: use main chat AI via generateQuietPrompt
-        log("LLM Override: No Connection Manager or profile, falling back to main AI");
+    const buildMainChatFallback = async (route, errorMessage = null) => {
+        log(`LLM Override: ${errorMessage || "override unavailable"} — falling back to main chat AI`);
         const fallbackOptions = {
             signal,
             quietName: `ImageGen_${Date.now()}`,
@@ -4702,9 +4704,9 @@ async function callOverrideLLM(instruction, systemPrompt = "", signal = null, { 
         const fallbackText = assistantPrefill
             ? await callInternalStandaloneLLM(instruction, fallbackOptions)
             : await callInternalQuietPrompt(instruction, fallbackOptions);
-        const fallbackMeta = {
+        const meta = {
             text: fallbackText,
-            route: "override_unavailable_main_chat",
+            route,
             sourcePath: "response",
             extractionStatus: fallbackText ? "text" : "empty_string",
             finishReason: null,
@@ -4712,132 +4714,98 @@ async function callOverrideLLM(instruction, systemPrompt = "", signal = null, { 
             responseShape: summarizeLLMValueShape(fallbackText),
             contentShape: summarizeLLMValueShape(fallbackText),
         };
-        return returnMeta ? fallbackMeta : fallbackText;
+        if (errorMessage) meta.error = errorMessage;
+        return returnMeta ? meta : fallbackText;
+    };
+
+    // Guard: override disabled or no profile selected -> use main chat AI.
+    if (!s.llmOverrideEnabled || !s.llmOverrideProfileId) {
+        return buildMainChatFallback("override_unavailable_main_chat", "override disabled or no profile selected");
     }
+    if (!CMRS || typeof CMRS.sendRequest !== "function") {
+        return buildMainChatFallback("override_unavailable_main_chat", "Connection Manager Request Service unavailable (requires SillyTavern 1.12.0+)");
+    }
+
+    // Resolve the profile by ID first, then by name (users type either into the text box).
+    const resolved = resolveOverrideConnectionProfile(CMRS, s.llmOverrideProfileId);
+    if (!resolved) {
+        return buildMainChatFallback("override_unavailable_main_chat", `Connection Profile '${s.llmOverrideProfileId}' not found (checked by ID and name)`);
+    }
+    const profile = resolved.profile;
+    const profileId = resolved.id;
+    // Use the resolved profile ID for the actual request
+    const resolvedProfileId = profileId;
+    log(`LLM Override: resolved profile ID: ${resolvedProfileId} (original input: ${s.llmOverrideProfileId})`);
+
+    const endpointUrl = profile?.api_url || profile?.url || profile?.endpoint || profile?.serviceEndpoint || "";
+    log(`LLM Override: routing to profile '${profile.name || profileId}'${requestedPreset ? ` (preset: ${requestedPreset})` : ""}${endpointUrl ? ` @ ${endpointUrl}` : ""}`);
 
     const messages = [];
     if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
     messages.push({ role: "user", content: instruction });
     if (assistantPrefill) messages.push({ role: "assistant", content: assistantPrefill });
 
-    const requestedPreset = s.llmOverridePreset || "";
-    log(`LLM Override: Using connection profile '${s.llmOverrideProfileId}' (preset: ${requestedPreset || "profile default"})`);
-    // Debug: show endpoint info
-    try {
-        const dbgProfile = CMRS.getProfile(s.llmOverrideProfileId);
-        const dbgUrl = dbgProfile?.api_url || dbgProfile?.url || dbgProfile?.endpoint || dbgProfile?.serviceEndpoint || "?";
-        log(`LLM Override DEBUG: Profile endpoint = ${dbgUrl}`);
-        console.log("[QIG LLM OVERRIDE]", { profileId: s.llmOverrideProfileId, endpoint: dbgUrl, preset: requestedPreset, maxTokens: requestedMaxTokens, profileKeys: Object.keys(dbgProfile || {}) });
-        showStatus(`🔄 Отправка запроса в: ${dbgUrl}`);
-        setTimeout(hideStatus, 3000);
-    } catch {}
-
-    // Rotate to the profile's secret if it has one
-    let previousSecretId = null;
-    let secretKey = null;
-    let profile = null;
-    let originalProfilePreset;
-    let presetOverridden = false;
-    let originalActivePreset = null;
-    let activePresetOverridden = false;
-    try {
-        profile = CMRS.getProfile(s.llmOverrideProfileId);
-
-        // Apply selected preset for this request only, then restore it.
-        if (profile && requestedPreset && profile.preset !== requestedPreset) {
-            originalProfilePreset = profile.preset;
-            profile.preset = requestedPreset;
-            presetOverridden = true;
-        }
-
-        const profileSecretId = profile?.['secret-id'];
-        if (profileSecretId && rotateSecret && secret_state) {
-            secretKey = findSecretKeyForId(profileSecretId);
-            if (secretKey) {
-                previousSecretId = secret_state[secretKey]?.find(sec => sec.active)?.id;
-                if (previousSecretId !== profileSecretId) {
-                    log(`LLM Override: Rotating secret for '${secretKey}' to profile's key`);
-                    await rotateSecret(secretKey, profileSecretId);
-                } else {
-                    previousSecretId = null; // already correct, no restore needed
-                }
-            }
-        }
-    } catch (e) {
-        log(`LLM Override: Could not prepare profile override: ${e.message}`);
+    // Build the "custom" options object that ST's ConnectionManagerRequestService accepts.
+    // Passing `presetName` lets ST apply a specific completion preset for THIS request only,
+    // without mutating shared state. `includePreset: false` keeps the profile's own settings.
+    const customOptions = {
+        stream: false,
+        signal,
+    };
+    if (requestedPreset) {
+        customOptions.presetName = requestedPreset;
     }
 
     try {
-        const response = await runWithInternalLLMRequest("LLM override profile request", async () => await runAbortableTask(() => CMRS.sendRequest(
-            s.llmOverrideProfileId,
-            messages,
-            requestedMaxTokens,
-            { extractData: true, includePreset: true, stream: false }
-        ), signal));
+        const response = await runWithInternalLLMRequest("LLM override profile request", async () =>
+            await CMRS.sendRequest(
+                resolvedProfileId,
+                messages,
+                requestedMaxTokens,
+                customOptions,
+            )
+        );
+
         const details = extractLLMResponseDetails(response);
         const meta = {
             ...details,
             route: "llm_override",
             requestedMaxTokens,
-            profileId: s.llmOverrideProfileId,
+            profileId: resolvedProfileId,
         };
+        logLLMHelperResponseMeta(meta, "LLM Override response");
+
         if (!details.text) {
-            logLLMHelperResponseMeta(meta, "LLM Override response");
+            // Empty response from the override profile — surface it but do NOT silently
+            // reroute to the RP chat AI (that was the original bug the user reported).
+            log("LLM Override: profile returned empty text.");
         }
         return returnMeta ? meta : details.text;
     } catch (e) {
-        if (e.name === "AbortError") throw e;
-        log(`LLM Override failed (profile: ${s.llmOverrideProfileId}): ${e.message}`);
-        log("Falling back to main chat AI. Check your Connection Manager profile's API type, endpoint, and API key.");
-        const recoveryOptions = {
-            signal,
-            quietName: `ImageGen_${Date.now()}`,
-            label: "LLM override recovery request",
-            prefill: assistantPrefill,
-        };
-        const fallbackText = assistantPrefill
-            ? await callInternalStandaloneLLM(instruction, recoveryOptions)
-            : await callInternalQuietPrompt(instruction, recoveryOptions);
-        const fallbackMeta = {
-            text: fallbackText,
-            route: "override_failed_main_chat",
-            sourcePath: "response",
-            extractionStatus: fallbackText ? "text" : "empty_string",
-            finishReason: null,
-            requestedMaxTokens,
-            responseShape: summarizeLLMValueShape(fallbackText),
-            contentShape: summarizeLLMValueShape(fallbackText),
-            error: e.message,
-            profileId: s.llmOverrideProfileId,
-        };
-        return returnMeta ? fallbackMeta : fallbackText;
-    } finally {
-        // Restore original secret
-        if (previousSecretId && secretKey && rotateSecret) {
-            try {
-                log(`LLM Override: Restoring original secret for '${secretKey}'`);
-                await rotateSecret(secretKey, previousSecretId);
-            } catch (e) {
-                log(`LLM Override: Could not restore secret: ${e.message}`);
-            }
-        }
+        if (e?.name === "AbortError") throw e;
+        log(`LLM Override request failed (profile: ${resolvedProfileId}): ${e.message}`);
+        log("Falling back to main chat AI. Check the Connection Profile's API type, endpoint, and API key.");
+        return buildMainChatFallback("override_failed_main_chat", e.message);
+    }
+}
 
-        // Restore profile preset if we overrode it for this call.
-        // Restore active chat preset if we switched it
-        if (activePresetOverridden && presetManager && typeof presetManager.selectPreset === 'function') {
-            try {
-                log(`LLM Override: Restoring active preset to '${originalActivePreset}'`);
-                presetManager.selectPreset(originalActivePreset);
-            } catch (e) {
-                log(`LLM Override: Could not restore active preset: ${e.message}`);
-            }
-        }
 
-        // Restore profile preset if we overrode it for this call.
-        if (presetOverridden && profile) {
-            profile.preset = originalProfilePreset;
+function resolveOverrideConnectionProfile(CMRS, profileIdOrName) {
+    // Try to resolve the input as a profile ID first
+    const profileById = CMRS.getProfile ? CMRS.getProfile(profileIdOrName) : null;
+    if (profileById) {
+        return { profile: profileById, id: profileIdOrName };
+    }
+
+    // If not found by ID, try to find by name
+    const profiles = CMRS.getSupportedProfiles ? CMRS.getSupportedProfiles() : [];
+    for (const p of profiles) {
+        if (p.name === profileIdOrName) {
+            return { profile: p, id: p.id };
         }
     }
+
+    return null;
 }
 
 function populateConnectionProfiles(selectId, selectedId) {
@@ -12739,9 +12707,9 @@ function createUI() {
                         <small style="opacity:0.6;font-size:10px;">Направлять генерацию промптов изображений на другую AI модель, отличную от основного чата</small>
                         <div id="qig-llm-override-options" style="display:${s.llmOverrideEnabled ? 'block' : 'none'};margin-top:6px;">
                             <label style="font-size:11px;">Connection Profile</label>
-                            <select id="qig-llm-override-profile" style="width:100%;"></select>
+                            <input id="qig-llm-override-profile" type="text" value="${esc(s.llmOverrideProfileId || '')}" placeholder="Имя или ID профиля подключения" style="width:100%;">
                             <label style="font-size:11px;margin-top:4px;">Completion Preset (опционально)</label>
-                            <select id="qig-llm-override-preset-select" style="width:100%;"></select>
+                            <input id="qig-llm-override-preset-select" type="text" value="${esc(s.llmOverridePreset || '')}" placeholder="Имя пресета (необязательно)" style="width:100%;">
                             <label style="font-size:11px;margin-top:4px;">Max Tokens</label>
                          <input id="qig-llm-override-max" type="number" value="${esc(s.llmOverrideMaxTokens || 500)}" min="50" max="4096" style="width:100%;">
                          <div id="qig-llm-override-route-info" style="margin-top:8px;padding:6px 10px;border:1px solid color-mix(in srgb, var(--qig-success) 30%, transparent);border-radius:6px;background:color-mix(in srgb, var(--qig-success) 8%, transparent);font-size:10px;line-height:1.5;">
@@ -13718,23 +13686,21 @@ function createUI() {
             btn.innerHTML = s.llmOverrideEnabled ? '✅ [TEST] Использовать другой ИИ для генерации изображений' : '☐ [TEST] Использовать другой ИИ для генерации изображений';
         }
         document.getElementById("qig-llm-override-options").style.display = s.llmOverrideEnabled ? "block" : "none";
-        if (s.llmOverrideEnabled) {
-            populateConnectionProfiles("qig-llm-override-profile", getSettings().llmOverrideProfileId);
-            populatePresetList("qig-llm-override-preset-select", getSettings().llmOverridePreset);
-        }
         updateLLMOverrideRouteInfo();
         saveSettingsDebounced();
     };
-    document.getElementById("qig-llm-override-profile").onchange = (e) => {
-        getSettings().llmOverrideProfileId = e.target.value;
+    document.getElementById("qig-llm-override-profile").oninput = (e) => {
+        getSettings().llmOverrideProfileId = e.target.value.trim();
         updateLLMOverrideRouteInfo();
         saveSettingsDebounced();
     };
-    document.getElementById("qig-llm-override-preset-select").onchange = (e) => {
-        getSettings().llmOverridePreset = e.target.value;
+    document.getElementById("qig-llm-override-preset-select").oninput = (e) => {
+        getSettings().llmOverridePreset = e.target.value.trim();
         saveSettingsDebounced();
     };
     bind("qig-llm-override-max", "llmOverrideMaxTokens", true);
+    updateLLMOverrideRouteInfo();
+
     const widthEl = document.getElementById("qig-width");
     const heightEl = document.getElementById("qig-height");
     const onSizeChange = () => {
@@ -15447,11 +15413,9 @@ jQuery(function () {
             await registerQigSlashCommands();
             loadCharSettings();
 
-            // Populate LLM override dropdowns if enabled
+            // LLM Override init: update route info if enabled
             const initSettings = getSettings();
             if (initSettings.llmOverrideEnabled) {
-                populateConnectionProfiles("qig-llm-override-profile", initSettings.llmOverrideProfileId);
-                populatePresetList("qig-llm-override-preset-select", initSettings.llmOverridePreset);
                 const btn = document.getElementById("qig-llm-override-toggle");
                 if (btn) {
                     btn.style.background = 'var(--qig-accent)';
