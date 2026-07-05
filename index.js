@@ -4551,6 +4551,7 @@ function extractLLMResponseDetails(response) {
     }
 
     const candidates = [
+        { label: "reasoning", value: response.reasoning },
         { label: "content", value: response.content },
         { label: "choices[0].message.content", value: response.choices?.[0]?.message?.content },
         { label: "choices[0].message.tool_plan", value: response.choices?.[0]?.message?.tool_plan },
@@ -4718,16 +4719,24 @@ async function callOverrideLLM(instruction, systemPrompt = "", signal = null, { 
     if (assistantPrefill) messages.push({ role: "assistant", content: assistantPrefill });
 
     const requestedPreset = s.llmOverridePreset || "";
-    log(`LLM Override: Using connection profile '${s.llmOverrideProfileId}' (preset: ${requestedPreset || "profile default"})`);
+    let profile = null;
+    try {
+        profile = CMRS.getProfile(s.llmOverrideProfileId);
+    } catch {
+        // ignore
+    }
+    const profileName = profile?.name || profile?.id || s.llmOverrideProfileId;
+    const profileUrl = profile?.url || profile?.endpoint || "N/A";
+    log(`LLM Override: >>> Using connection profile '${profileName}' (${profileUrl}) [preset: ${requestedPreset || "profile default"}]`);
 
     // Rotate to the profile's secret if it has one
     let previousSecretId = null;
     let secretKey = null;
-    let profile = null;
     let originalProfilePreset;
     let presetOverridden = false;
     try {
-        profile = CMRS.getProfile(s.llmOverrideProfileId);
+        // (re-fetch if needed, but profile is already set above)
+        if (!profile) profile = CMRS.getProfile(s.llmOverrideProfileId);
 
         // Apply selected preset for this request only, then restore it.
         if (profile && requestedPreset && profile.preset !== requestedPreset) {
