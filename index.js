@@ -4689,6 +4689,7 @@ async function callOverrideLLM(instruction, systemPrompt = "", signal = null, { 
     if (!CMRS || !s.llmOverrideProfileId) {
         // Fallback: use main chat AI via generateQuietPrompt
         log("LLM Override: No Connection Manager or profile, falling back to main AI");
+        toastr?.warning?.("LLM Override: Connection Manager or profile not available. Using main chat AI.", "Image Gen", { timeOut: 5000 });
         const fallbackOptions = {
             signal,
             quietName: `ImageGen_${Date.now()}`,
@@ -4768,12 +4769,14 @@ async function callOverrideLLM(instruction, systemPrompt = "", signal = null, { 
         };
         if (!details.text) {
             logLLMHelperResponseMeta(meta, "LLM Override response");
+            throw new Error("Override LLM returned empty response (format not recognized)");
         }
         return returnMeta ? meta : details.text;
     } catch (e) {
         if (e.name === "AbortError") throw e;
         log(`LLM Override failed (profile: ${s.llmOverrideProfileId}): ${e.message}`);
         log("Falling back to main chat AI. Check your Connection Manager profile's API type, endpoint, and API key.");
+        toastr?.warning?.("LLM Override failed: " + e.message + " Falling back to main chat AI.", "Image Gen", { timeOut: 8000 });
         const recoveryOptions = {
             signal,
             quietName: `ImageGen_${Date.now()}`,
